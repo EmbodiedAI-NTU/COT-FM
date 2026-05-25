@@ -2,6 +2,7 @@
 __pycache__/
 *.py[codz]
 *$py.class
+.claude/
 
 # C extensions
 *.so
@@ -216,3 +217,42 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- COT-FM release additions ---
+# System / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Checkpoints / weights
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+
+# Training artifacts
+logs/
+wandb/
+runs/
+outputs/
+results/
+samples/
+*.log
+
+# Datasets
+data/
+datasets/
+*.lmdb
+*.tfrecord
+
+# Generated figures (run artifacts, not README assets)
+generated_samples.png
+debug_loss.*
+*_visualization.png
+
+# Merged from toy_2d/.gitignore
+.cursorignore
+.cursorindexingignore
+results_new/

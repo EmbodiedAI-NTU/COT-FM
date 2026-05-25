@@ -1,0 +1,14 @@
+[project]
+name = "toy-fm"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.4",
+    "pot>=0.9.6.post1",
+    "scikit-learn>=1.7.2",
+    "torch>=2.9.0",
+    "tqdm>=4.67.1",
+]
