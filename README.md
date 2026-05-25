@@ -1,6 +1,6 @@
 # COT-FM: Cluster-wise Optimal Transport Flow Matching
 
-Cluster target samples → reverse a pretrained FM model into a per-cluster Gaussian source → cluster-wise optimal-transport fine-tuning → straighter flows and faster sampling.
+![COT-FM teaser](assets/teaser.png)
 
 COT-FM is a general, plug-and-play framework that reshapes the probability path in Flow Matching (FM) for faster and more reliable generation. FM models often produce curved trajectories due to random or batch-wise couplings, which increase discretization error and reduce sample quality. COT-FM fixes this by clustering target samples and assigning each cluster a dedicated source distribution obtained by reversing pretrained FM models. This divide-and-conquer strategy yields more accurate local transport and significantly straighter vector fields, all without changing the model architecture. It consistently accelerates sampling and improves generation quality across 2D datasets, image generation benchmarks, and robotic manipulation tasks.
 
