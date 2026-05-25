@@ -25,11 +25,14 @@ COT-FM is a plug-and-play framework that reshapes the Flow Matching probability 
 ## Citation
 
 ```bibtex
-@article{chiang2026cotfm,
-  title={COT-FM: Cluster-wise Optimal Transport Flow Matching},
-  author={Chiang, Chiensheng and Tu, Kuan-Hsun and Liao, Jia-Wei and Chou, Cheng-Fu and Ke, Tsung-Wei},
-  journal={arXiv preprint arXiv:2603.13395},
-  year={2026}
+@misc{chiang2026cotfmclusterwiseoptimaltransport,
+      title={COT-FM: Cluster-wise Optimal Transport Flow Matching}, 
+      author={Chiensheng Chiang and Kuan-Hsun Tu and Jia-Wei Liao and Cheng-Fu Chou and Tsung-Wei Ke},
+      year={2026},
+      eprint={2603.13395},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2603.13395}, 
 }
 ```
 
