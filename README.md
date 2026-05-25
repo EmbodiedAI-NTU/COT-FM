@@ -2,6 +2,8 @@
 
 ![COT-FM teaser](assets/teaser.png)
 
+**🎉 Accepted to CVPR 2026.**
+
 Official implementation of "COT-FM: Cluster-wise Optimal Transport Flow Matching".
 
 COT-FM is a plug-and-play framework that reshapes the Flow Matching probability path by clustering target samples and assigning each cluster a dedicated source distribution. The result: straighter trajectories, lower discretization error, and faster sampling — without any architectural changes.
