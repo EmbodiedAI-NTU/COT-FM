@@ -23,3 +23,6 @@ Both wrap `train.py`; see the scripts for the full hyperparameters.
 **Produced by the pipeline:**
 - `cifar10_ppo_data.pt` — CIFAR-10 images + DINO features + cluster assignments (from `clustering.py`).
 - `noises_ours.pth`, `noise_distributions.pth` — per-cluster source noises / Gaussian statistics. **These come from the `cifar_rf` reverse run** (cross-codebase), not produced here.
+
+**Download manually:**
+- `cotfm_meanflow.pth` — COT-FM fine-tuned checkpoint, from [Google Drive](https://drive.google.com/drive/folders/1Jy7bhbI6LtwehKNY8tCx3OY1HNS6xcuO?usp=sharing).

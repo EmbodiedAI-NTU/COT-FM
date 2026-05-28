@@ -36,3 +36,4 @@ python main.py --config configs/rectified_flow/cifar10_rf_gaussian_ddpmpp.py --w
 
 **Download manually:**
 - `assets/stats/cifar10_stats.npz` — FID reference stats, from [score_sde_pytorch](https://github.com/yang-song/score_sde_pytorch).
+- `cotfm_rf.pth` — COT-FM fine-tuned checkpoint, from [Google Drive](https://drive.google.com/drive/folders/1Jy7bhbI6LtwehKNY8tCx3OY1HNS6xcuO?usp=sharing).

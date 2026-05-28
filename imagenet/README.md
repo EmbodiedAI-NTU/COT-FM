@@ -44,4 +44,5 @@ sbatch evaluate.sh   # Stage 3: evaluate FID (evaluate.py)
 **Download manually:**
 - ImageNet ILSVRC training images (`/path/to/imagenet/train`) — [image-net.org](https://www.image-net.org/).
 - ADM FID statistics `adm_in256_stats.npz` — [openai/guided-diffusion](https://github.com/openai/guided-diffusion/tree/main/evaluations).
+- `cotfm_imagenet_b_2.pt` (SiT-B/2), `cotfm_imagenet_b_4.pt` (SiT-B/4) — COT-FM fine-tuned checkpoints, from [Google Drive](https://drive.google.com/drive/folders/1Jy7bhbI6LtwehKNY8tCx3OY1HNS6xcuO?usp=sharing).
 - conda — [Miniconda](https://docs.conda.io/en/latest/miniconda.html).

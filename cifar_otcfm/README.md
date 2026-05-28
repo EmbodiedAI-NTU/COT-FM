@@ -28,3 +28,6 @@ torchrun --nproc_per_node=8 compute_fid_multi_gpu.py --path_pattern cotfm_block_
 
 **Produced by the pipeline:**
 - `cifar10_{n}_cluster.pt`, `reverse_stats_cov_{n}.pth` — cluster data and per-cluster source-distribution statistics (from `clustering.py` + `reverse.py`).
+
+**Download manually:**
+- `cotfm_otcfm.pt` — COT-FM fine-tuned checkpoint, from [Google Drive](https://drive.google.com/drive/folders/1Jy7bhbI6LtwehKNY8tCx3OY1HNS6xcuO?usp=sharing).

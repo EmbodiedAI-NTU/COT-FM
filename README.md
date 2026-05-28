@@ -24,6 +24,18 @@ COT-FM is a plug-and-play framework that reshapes the Flow Matching probability 
 
 `cifar_rf` selects train/eval via `--mode {train,eval}`; `cifar_meanflow` evaluates with `--eval_only` (see [`scripts/`](cifar_meanflow/scripts)); `toy_2d` runs training, sampling, and metrics from a single `main.py`. Each folder has its own README with setup and run instructions.
 
+## Checkpoints
+
+Released on [Google Drive](https://drive.google.com/drive/folders/1Jy7bhbI6LtwehKNY8tCx3OY1HNS6xcuO?usp=sharing):
+
+| File | Folder | Backbone |
+|---|---|---|
+| `cotfm_rf.pth` | [`cifar_rf`](cifar_rf) | Rectified Flow, CIFAR-10 |
+| `cotfm_otcfm.pt` | [`cifar_otcfm`](cifar_otcfm) | OT-CFM, CIFAR-10 |
+| `cotfm_meanflow.pth` | [`cifar_meanflow`](cifar_meanflow) | MeanFlow, CIFAR-10 |
+| `cotfm_imagenet_b_2.pt` | [`imagenet`](imagenet) | SiT-B/2, ImageNet 256×256 |
+| `cotfm_imagenet_b_4.pt` | [`imagenet`](imagenet) | SiT-B/4, ImageNet 256×256 |
+
 ## Citation
 
 ```bibtex
