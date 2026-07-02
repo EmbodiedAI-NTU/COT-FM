@@ -21,7 +21,6 @@ from torchmetrics.image.kid import KernelInceptionDistance
 from torchvision.utils import save_image, make_grid
 from training import distributed_mode
 import models.rng as rng
-from models.cifar_tsne import cluster_dataloader
 import torchvision
 from tqdm import tqdm
 from training.ppo_utils import sample_noise

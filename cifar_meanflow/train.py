@@ -28,14 +28,12 @@ from training.data_transform import get_transform_cifar, get_transform_mnist
 from training.eval_loop import eval_model
 from training.load_and_save import load_model, save_model
 from training.train_loop import train_one_epoch, train_step
-from models.policy import Policy
 from torchmetrics.aggregation import MeanMetric
 import models.rng as rng
 from tqdm import tqdm
 import torch.distributed as dist
 
 from torch.utils.tensorboard import SummaryWriter
-from models.cifar_tsne import cluster_dataloader
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import training.ppo_utils as ppo_utils
 torch.set_float32_matmul_precision('high')
@@ -113,17 +111,6 @@ def _setup_ppo_config(config):
     ppo_config.device = config.device
     ppo_config.single_class_id = config.single_class_id if config.single_class_id >= 0 else None
     return ppo_config
-
-def _initialize_noise_sampler(ppo_config, config):
-    """Create and optionally load noise sampler."""
-    noise_sampler = ppo_utils.NoiseSampler(ppo_config).to(config.device)
-    checkpoint_path = ppo_config.noise_sampler_path
-    if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=config.device, weights_only=False)
-        noise_sampler.load_state_dict(checkpoint['policy_state_dict'])
-        noise_sampler.eval()
-        logging.info(f"Loaded pre-trained noise sampler from {checkpoint_path}")
-    return noise_sampler
 
 from training.optimal_transport import OTPlanSampler
 from models.augment import AugmentPipe

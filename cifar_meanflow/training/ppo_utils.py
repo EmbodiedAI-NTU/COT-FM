@@ -119,10 +119,11 @@ if os.path.exists(ppo_config.gaussian_path):
     dists = [torch.distributions.MultivariateNormal(gaussians["means"][i], gaussians["covs"][i]) for i in range(ppo_config.num_classes)]
 else:
     gaussians = None
-noises = torch.load("/path/to/noises_ours.pth")
-def sample_noise(noise_sampler: NoiseSampler, class_labels: torch.Tensor, device: str, deterministic: bool = False):
-    if gaussians is None:
-        return noises.to(device)
+    dists = None
+
+def sample_noise(noise_sampler, class_labels: torch.Tensor, device: str, deterministic: bool = False):
+    if dists is None:
+        return torch.randn(class_labels.shape[0], 3, 32, 32, device=device)
     class_labels = class_labels.cpu()
     noise = []
     for class_label in class_labels:
