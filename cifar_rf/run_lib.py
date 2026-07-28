@@ -16,17 +16,15 @@
 # pylint: skip-file
 """Training and evaluation for score-based generative models."""
 
-import gc
-import io
 import os
 import time
 import random
 
 import numpy as np
 import tensorflow as tf
-import tensorflow_gan as tfgan
 import logging
 import torch
+import torchvision
 from torch.utils import tensorboard
 from torchvision.utils import make_grid, save_image
 
@@ -39,8 +37,6 @@ from tqdm import tqdm
 import losses
 import sampling
 import datasets
-import evaluation
-import likelihood
 import sde_lib
 import ppo_utils
 from my_utils import save_checkpoint, restore_checkpoint
@@ -79,7 +75,7 @@ def initialize_model_state(config):
     return state, score_model, ema, optimizer
 
 
-def setup_sde(config, noise_sampler=None):
+def setup_sde(config):
     """Configure SDE based on config settings."""
     sde_type = config.training.sde.lower()
     if sde_type == 'vpsde':
@@ -105,7 +101,6 @@ def setup_sde(config, noise_sampler=None):
             sigma_var=getattr(config.sampling, 'sigma_variance', None),
             ode_tol=getattr(config.sampling, 'ode_tol', None),
             sample_N=getattr(config.sampling, 'sample_N', None),
-            noise_sampler=noise_sampler
         )
         sampling_eps = 1e-3
     else:
@@ -159,7 +154,7 @@ from optimal_transport import OTPlanSampler
 import torchvision.transforms.functional as TF
 otplansampler = OTPlanSampler(method='exact')
 def create_training_dataset(ppo_config, config, ppo_resources, sde, gaussians=None, REFLOW=False):
-    """Create training dataset with OT + noise_sampler."""
+    """Create training dataset with OT + per-cluster initial noise."""
     if REFLOW:
         p = np.random.random()
         reflow_data = torch.load(ppo_config.reflow_data_path_0)
@@ -167,8 +162,7 @@ def create_training_dataset(ppo_config, config, ppo_resources, sde, gaussians=No
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=config.training.batch_size, shuffle=True, drop_last=True)
         return dataloader
     datasets = []
-    sde.deterministic = True
-    logging.info("Creating training dataset with OT + noise_sampler")
+    logging.info("Creating training dataset with OT + per-cluster initial noise")
     for class_id in range(ppo_config.num_classes):
         sde.set_target_class(class_id)
         
@@ -201,7 +195,6 @@ def create_training_dataset(ppo_config, config, ppo_resources, sde, gaussians=No
         datasets.append(dataset)
     datasets = torch.utils.data.ConcatDataset(datasets)
     dataloader = torch.utils.data.DataLoader(datasets, batch_size=config.training.batch_size, shuffle=True, drop_last=True)
-    sde.deterministic = False
     return dataloader
 
 # ============================================================================
@@ -230,8 +223,7 @@ def train(config, workdir):
     scaler = datasets.get_data_scaler(config) # e.g. map to [-1,1]
     inverse_scaler = datasets.get_data_inverse_scaler(config)  # kept for other parts
 
-    noise_sampler = _initialize_noise_sampler(ppo_config, config)
-    sde, sampling_eps = setup_sde(config, noise_sampler)
+    sde, sampling_eps = setup_sde(config)
 
     train_step_fn, eval_step_fn = _setup_step_functions(config, sde)
 
@@ -247,14 +239,13 @@ def train(config, workdir):
     # train_ds = create_training_dataset(ppo_config, config, ppo_resources, sde, gaussians=gaussians, REFLOW=False)
     for step in tqdm(range(initial_step, config.training.n_iters + 1)):
         # _generate_class_grid_samples(eval_dir, ppo_config, sde, sampling_fn, score_model, inverse_scaler, step)
-        # debug(ppo_config, config, sde, noise_sampler, sampling_fn, score_model)
         # batch = _prepare_batch(next(train_iter), config.device, scaler)
         train_ds = create_training_dataset(ppo_config, config, ppo_resources, sde, gaussians=gaussians, REFLOW=False)
         loss = 0.0
         sz = 0
         
         if step != initial_step:
-            for batch in tqdm(train_ds): # batch should be (target, noise) with OT + noise_sampler
+            for batch in tqdm(train_ds): # batch should be (target, noise) with OT + per-cluster noise
                 loss += train_step_fn(state, batch)
                 sz += 1
             loss /= sz
@@ -355,13 +346,8 @@ def _save_checkpoint_and_samples(step, state, score_model, ema, config, dirs, sa
 # ============================================================================
 
 def evaluate(config, workdir, eval_folder="eval"):
-    """Main evaluation function with mode selection."""
-    if config.sampling.init_type == 'noise_sampler':
-        logging.info("Running PPO training mode")
-        return evaluate_with_ppo(config, workdir, eval_folder)
-    else:
-        logging.info("Running original evaluation mode")
-        return evaluate_original(config, workdir, eval_folder)
+    """Main evaluation function; the mode is selected by config.eval.eval_mode."""
+    return evaluate_with_ppo(config, workdir, eval_folder)
 
 
 def find_reverse(sde, ppo_config, ppo_resources, score_model):
@@ -397,35 +383,29 @@ def find_reverse(sde, ppo_config, ppo_resources, score_model):
 
 def evaluate_with_ppo(config, workdir, eval_folder="eval"):
     """Evaluate with PPO training for noise sampler."""
-    EVAL_ONLY = False
-    REFLOW = False
-    EVAL_TEST_DATASET_FID = False
-    GENERATE = False
-    REVERSE = False
+    eval_mode = config.eval.eval_mode
+    EVAL_ONLY = eval_mode == 'train_fid'
+    REFLOW = eval_mode == 'reflow'
+    EVAL_TEST_DATASET_FID = eval_mode == 'test_fid'
+    GENERATE = eval_mode == 'generate'
+    REVERSE = eval_mode == 'reverse'
 
     eval_dir = os.path.join(workdir, eval_folder)
     tf.io.gfile.makedirs(eval_dir)
 
-    logging.info("=== EVALUATION ONLY MODE ===" if EVAL_ONLY else "=== Starting PPO Training Mode ===")
+    logging.info(f"=== Starting evaluation, mode: {eval_mode} ===")
 
-    ppo_resources = ppo_utils.load_ppo_resources()
     ppo_config = _setup_ppo_config(config)
-    noise_sampler = _initialize_noise_sampler(ppo_config, config)
-    if not EVAL_ONLY:
-        ppo_trainer = ppo_utils.PPOTrainer(noise_sampler, ppo_config)
+    ppo_resources = ppo_utils.load_ppo_resources()
 
     state, score_model, ema = _setup_model_for_eval(config, workdir)
-    scaler = datasets.get_data_scaler(config)
     inverse_scaler = datasets.get_data_inverse_scaler(config)  # kept for API compatibility
 
-    sde, sampling_eps = setup_sde(config, noise_sampler)
+    sde, sampling_eps = setup_sde(config)
     sampling_fn = _setup_sampling_function(config, sde, inverse_scaler, sampling_eps)
-
-    inception_model = None
 
     begin_ckpt = config.eval.begin_ckpt
     logging.info(f"Begin checkpoint: {begin_ckpt}")
-    gaussians = torch.load(ppo_config.gaussians_path)
 
     for ckpt in range(begin_ckpt, config.eval.end_ckpt + 1):
         state = _load_training_checkpoint(config, workdir, state, ppo_config=ppo_config)
@@ -435,17 +415,16 @@ def evaluate_with_ppo(config, workdir, eval_folder="eval"):
             if EVAL_ONLY:
                 _compute_train_dataset_fid(
                     config, ppo_config, sampling_fn, score_model,
-                    sde, noise_sampler, ppo_resources
+                    sde, ppo_resources
                 )
             elif REFLOW:
                 _collect_reflow_data(
-                    config, eval_dir, ckpt, noise_sampler, sde,
-                    sampling_fn, score_model, ppo_config, ppo_resources,
+                    config, eval_dir, ckpt, sde,
+                    sampling_fn, score_model, ppo_config,
                 )
             elif EVAL_TEST_DATASET_FID:
                 _compute_test_dataset_fid(
-                    config, ppo_config, sampling_fn, score_model,
-                    sde, noise_sampler
+                    config, ppo_config, sampling_fn, score_model, sde, ppo_resources
                 )
             elif GENERATE:
                 _generate_class_grid_samples(eval_dir, ppo_config, sde, sampling_fn,
@@ -461,17 +440,16 @@ def evaluate_with_ppo(config, workdir, eval_folder="eval"):
             )
 
 
-def _collect_reflow_data(config, eval_dir, ckpt, noise_sampler, sde,
-                         sampling_fn, score_model, ppo_config, ppo_resources):
+def _collect_reflow_data(config, eval_dir, ckpt, sde,
+                         sampling_fn, score_model, ppo_config):
     round = ppo_config.num_reflow_samples // ppo_config.batch_size
     noises_images = []
     torch.manual_seed(8)
     torch.cuda.manual_seed(9)
-    a = torch.randint(0, 1, (10,))
     for _ in tqdm(range(round)):
         random_class_labels = torch.randint(0, ppo_config.num_classes, (ppo_config.batch_size,), device=ppo_config.device)
         with torch.no_grad():
-            noise_sample = ppo_utils.sample_noise(noise_sampler, random_class_labels, "cuda", deterministic=True)
+            noise_sample = ppo_utils.sample_noise(random_class_labels, "cuda")
             noise_for_sampling = noise_sample.view(config.eval.batch_size, 3, 32, 32)
             sde.set_noise(noise_for_sampling)
             samples, n = sampling_fn(score_model, z=noise_for_sampling)
@@ -483,24 +461,20 @@ def _collect_reflow_data(config, eval_dir, ckpt, noise_sampler, sde,
     exit()
 
 def _setup_ppo_config(config):
-    """Initialize PPO configuration."""
-    ppo_config = ppo_utils.PPOConfig()
+    """Initialize the initial-noise configuration from the eval config."""
+    ppo_config = ppo_utils.NoiseConfig()
     ppo_config.batch_size = config.eval.batch_size
     ppo_config.device = config.device
-    ppo_config.single_class_id = getattr(config.sampling, 'single_class_id', None)
+    ppo_config.gaussian = config.eval.gaussian
+    ppo_config.std = config.eval.std
+    for field in ('flow_model_path', 'gaussians_path', 'data_path'):
+        value = config.eval.get(field, 'no')
+        if value != 'no':
+            setattr(ppo_config, field, value)
+    # `ppo_utils.sample_noise` reads the module-level config instance.
+    for field in ('gaussian', 'std', 'gaussians_path', 'data_path'):
+        setattr(ppo_utils.ppo_config, field, getattr(ppo_config, field))
     return ppo_config
-
-
-def _initialize_noise_sampler(ppo_config, config):
-    """Create and optionally load noise sampler."""
-    noise_sampler = ppo_utils.NoiseSampler(ppo_config).to(config.device)
-    checkpoint_path = ppo_config.noise_sampler_path
-    if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=config.device)
-        noise_sampler.load_state_dict(checkpoint['policy_state_dict'])
-        noise_sampler.eval()
-        logging.info(f"Loaded pre-trained noise sampler from {checkpoint_path}")
-    return noise_sampler
 
 
 def _setup_model_for_eval(config, workdir):
@@ -535,14 +509,12 @@ def _generate_class_grid_samples(eval_dir, ppo_config, sde, sampling_fn,
     sample_grid_dir = os.path.join(eval_dir, "sample_grids")
     tf.io.gfile.makedirs(sample_grid_dir)
     all_class_samples = []
-    sde.deterministic = True
     for test_class in range(ppo_config.num_classes):
         sde.set_target_class(test_class)
         
         with torch.no_grad():
             test_samples, noise = sampling_fn(score_model)
             all_class_samples.append(test_samples[:10])  # keep in [0,1]
-    sde.deterministic = False
     all_class_samples = torch.cat(all_class_samples, dim=0)
     grid_path = os.path.join(sample_grid_dir, f"all_classes_round_{total_rounds}.png")
     _save_grid(all_class_samples, grid_path, nrow=10)
@@ -567,36 +539,58 @@ def _generate_final_evaluation_samples(eval_dir, ppo_config, sde, sampling_fn,
 
 from torchvision.transforms import transforms
 from torchmetrics.image.fid import FrechetInceptionDistance
-def _compute_test_dataset_fid(config, ppo_config, sampling_fn, score_model, sde, noise_sampler):
+
+
+def _cluster_sampling_rates(ppo_config, ppo_resources):
+    """Per-cluster sampling probabilities, proportional to each cluster's size."""
+    rates = [len(ppo_resources['class_to_indices'][class_id])
+             for class_id in range(ppo_config.num_classes)]
+    return np.array(rates) / sum(rates)
+
+
+def _draw_initial_noise(config, ppo_config, rates, target_images):
+    """Draw the initial noise for one batch, matching the train/test evaluations."""
+    random_class_labels = np.random.choice(np.arange(ppo_config.num_classes),
+                                           size=(target_images.size(0),), p=rates)
+    random_class_labels = torch.from_numpy(random_class_labels).to(config.device).long()
+    if ppo_config.gaussian:
+        noise_sample = torch.randn_like(target_images)
+    else:
+        noise_sample = ppo_utils.sample_noise(random_class_labels, "cuda")
+    return noise_sample.view(target_images.size(0), 3, 32, 32)
+
+
+def _compute_test_dataset_fid(config, ppo_config, sampling_fn, score_model, sde, ppo_resources):
     transform = transforms.Compose([
         transforms.ToTensor()
     ])
     test_dataset = torchvision.datasets.CIFAR10(root='./cifar10', train=False, download=True, transform=transform)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=ppo_config.batch_size, shuffle=False, num_workers=4)
     fid_metric = FrechetInceptionDistance(feature=2048, normalize=True).to(config.device)
-    
-    for target_images, _ in tqdm(test_dataloader):
+    rates = _cluster_sampling_rates(ppo_config, ppo_resources)
+    sz = 0
+
+    for batch_idx, (target_images, _) in enumerate(tqdm(test_dataloader)):
         target_images = target_images.to(config.device)
         fid_metric.update(target_images, real=True)
-        
+
         with torch.no_grad():
-            random_class_labels = torch.randint(0, ppo_config.num_classes,
-                                                (target_images.size(0),),
-                                                device=config.device, dtype=torch.long)
-            noise_sample = ppo_utils.sample_noise(noise_sampler, random_class_labels, "cuda", deterministic=True)
-            noise_for_sampling = noise_sample.view(target_images.size(0), 3, 32, 32)
+            noise_for_sampling = _draw_initial_noise(config, ppo_config, rates, target_images)
             sde.set_noise(noise_for_sampling)
             generated_samples, _ = sampling_fn(score_model, z=noise_for_sampling)
         generated_samples = torch.clamp(generated_samples * 0.5 + 0.5, 0, 1)
         fid_metric.update(generated_samples, real=False)
+
+        sz += generated_samples.size(0)
+        running_fid = fid_metric.compute()
+        logging.info(f"[batch {batch_idx + 1}/{len(test_dataloader)}] "
+                     f"{sz} samples, running FID: {running_fid.item():.6e}")
     fid_score = fid_metric.compute()
     logging.info(f"Test Dataset FID: {fid_score.item():.6e}")
     exit()
 from torchmetrics.image.inception import InceptionScore
 from torchmetrics.image.kid import KernelInceptionDistance
-from optimal_transport import wasserstein
-from plot_tsne import plot_tsne_inception
-def _compute_train_dataset_fid(config, ppo_config, sampling_fn, score_model, sde, noise_sampler, ppo_resources):
+def _compute_train_dataset_fid(config, ppo_config, sampling_fn, score_model, sde, ppo_resources):
     transform = transforms.Compose([
         transforms.ToTensor()
     ])
@@ -605,34 +599,33 @@ def _compute_train_dataset_fid(config, ppo_config, sampling_fn, score_model, sde
     fid_metric = FrechetInceptionDistance(feature=2048, normalize=True).to(config.device)
     kid_metric = KernelInceptionDistance(subset_size=1000, feature=2048, normalize=True).to(config.device)
     is_metric = InceptionScore(normalize=True).to(config.device)
-    rates = [len(ppo_resources['class_to_indices'][class_id]) for class_id in range(ppo_config.num_classes)]
-    rates = np.array(rates) / sum(rates)
-    samples = []
-    target_samples = []
+    rates = _cluster_sampling_rates(ppo_config, ppo_resources)
     sz = 0
-    for target_images, _ in tqdm(train_dataloader):
+    for batch_idx, (target_images, _) in enumerate(tqdm(train_dataloader)):
         target_images = target_images.to(config.device)
         fid_metric.update(target_images, real=True)
         kid_metric.update(target_images, real=True)
-        
+
         with torch.no_grad():
-            random_class_labels = np.random.choice(np.arange(ppo_config.num_classes), size=(target_images.size(0),), p=rates) 
-            random_class_labels = torch.from_numpy(random_class_labels).to(config.device).long()
-            if ppo_config.gaussian:
-                noise_sample = torch.randn_like(target_images)
-            else:
-                noise_sample = ppo_utils.sample_noise(noise_sampler, random_class_labels, "cuda", deterministic=True)
-            noise_for_sampling = noise_sample.view(target_images.size(0), 3, 32, 32)
+            noise_for_sampling = _draw_initial_noise(config, ppo_config, rates, target_images)
             sde.set_noise(noise_for_sampling)
             generated_samples, _ = sampling_fn(score_model, z=noise_for_sampling)
         generated_samples = torch.clamp(generated_samples * 0.5 + 0.5, 0, 1)
         fid_metric.update(generated_samples, real=False)
         kid_metric.update(generated_samples, real=False)
         is_metric.update(generated_samples)
+
+        # Running FID estimate over the batches seen so far. Note this is biased
+        # upwards for small sample counts and only matches the reported number
+        # once the whole dataset has been consumed.
+        sz += generated_samples.size(0)
+        running_fid = fid_metric.compute()
+        logging.info(f"[batch {batch_idx + 1}/{len(train_dataloader)}] "
+                     f"{sz} samples, running FID: {running_fid.item():.6e}")
     fid_score = fid_metric.compute()
     kid_mean, kid_std = kid_metric.compute()
     is_mean, is_std = is_metric.compute()
-    logging.info(f"Test Dataset FID: {fid_score.item():.6e}")
-    logging.info(f"Test Dataset KID: {kid_mean.item():.6e} ± {kid_std.item():.6e}")
-    logging.info(f"Test Dataset IS: {is_mean.item():.6e} ± {is_std.item():.6e}")
+    logging.info(f"Train Dataset FID: {fid_score.item():.6e}")
+    logging.info(f"Train Dataset KID: {kid_mean.item():.6e} ± {kid_std.item():.6e}")
+    logging.info(f"Train Dataset IS: {is_mean.item():.6e} ± {is_std.item():.6e}")
     exit()

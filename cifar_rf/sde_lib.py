@@ -8,27 +8,20 @@ import ppo_utils
 
 
 class RectifiedFlow():
-    def __init__(self, init_type='gaussian', noise_scale=1.0, reflow_flag=False, 
-                 reflow_t_schedule='uniform', reflow_loss='l2', use_ode_sampler='rk45', 
-                 sigma_var=0.0, ode_tol=1e-5, sample_N=None, noise_sampler=None):
+    def __init__(self, init_type='gaussian', noise_scale=1.0, reflow_flag=False,
+                 reflow_t_schedule='uniform', reflow_loss='l2', use_ode_sampler='rk45',
+                 sigma_var=0.0, ode_tol=1e-5, sample_N=None):
       if sample_N is not None:
         self.sample_N = sample_N
         print('Number of sampling steps:', self.sample_N)
       self.init_type = init_type
-      
+
       self.noise_scale = noise_scale
       self.use_ode_sampler = use_ode_sampler
       self.ode_tol = ode_tol
       self.sigma_t = lambda t: (1. - t) * sigma_var
-      self.noise_sampler = noise_sampler
       self.current_class = None
       self.preset_noise = None  # For directly setting noise
-      self.deterministic = False  # Whether to use deterministic sampling (for evaluation)
-      import lpips
-      self.lpips_model = lpips.LPIPS(net='vgg')
-      self.lpips_model = self.lpips_model.cuda()
-      for p in self.lpips_model.parameters():
-          p.requires_grad = False
       print('Init. Distribution Variance:', self.noise_scale)
       print('SDE Sampler Variance:', sigma_var)
       print('ODE Tolerence:', self.ode_tol)
@@ -132,10 +125,7 @@ class RectifiedFlow():
             return torch.randn(cur_shape, device=batch.device) * self.noise_scale
 
         elif self.init_type == 'noise_sampler':
-            ### Use noise sampler to generate noise
-            if self.noise_sampler is None:
-                raise ValueError("Noise sampler not set for noise_sampler mode")
-            
+            ### Draw the initial noise from the per-cluster distributions
             # Generate class labels for the batch
             if class_labels is None:
                 if train:
@@ -158,9 +148,8 @@ class RectifiedFlow():
                                                     device=batch.device, dtype=torch.long)
             # Get distribution from noise sampler
             # class_labels = class_labels.to("cuda")
-            with torch.no_grad():  # Ensure no gradients flow through frozen noise sampler
-                noise_sample = ppo_utils.sample_noise(self.noise_sampler, class_labels, batch.device, deterministic=self.deterministic)
-                # noise_sample = dist.rsample()  # [n, 3072] for RGB images
+            with torch.no_grad():
+                noise_sample = ppo_utils.sample_noise(class_labels, batch.device)
             
             # Reshape to image format
             # For CIFAR-10 RGB: 3072 = 3 * 32 * 32

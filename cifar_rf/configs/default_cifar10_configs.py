@@ -44,8 +44,11 @@ def get_default_configs():
   evaluate.bpd_dataset = 'test'
   evaluate.flow_model_path = 'no'
   evaluate.gaussians_path = 'no'
+  evaluate.data_path = 'no'
   evaluate.gaussian = False
   evaluate.std = False
+  # One of: train_fid | test_fid | reflow | generate | reverse
+  evaluate.eval_mode = 'train_fid'
 
 
   # data
